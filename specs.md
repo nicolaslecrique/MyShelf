@@ -179,3 +179,6 @@ inspired by hexagonal architecture.
 - mcp
 - rest api: routes, api structures and mapping to core
 
+### Tests
+
+when possible, most features are tested end to end, as a user would call the service, against a postgres db in a docker container

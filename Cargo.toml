@@ -1,0 +1,15 @@
+[package]
+name = "myshelf"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8.9"
+rmcp = { version = "3.10.0", features = ["server", "macros", "transport-streamable-http-server", "transport-io"] }
+tokio = { version = "1.54.1", features = ["full"] }
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+pedantic = { level = "deny", priority = -1 }
