@@ -149,3 +149,33 @@ OICD identity provider: cloud logto
 
 - using envelop encryption of all data makes search happens in-memory, without db index, this put pressure on the amount of data loaded from the db. This is accepted for maximum security
 - using server-side encryption rather than e2ee makes it theoretically possible to leak user data. This is accepted to allow for efficient server-side filtering and cloud-based MCP server usable from llm providers mobile apps.
+
+
+## Dev env
+
+* strict linting:
+
+    [lints.rust]
+    unsafe_code = "deny"
+
+    [lints.clippy]
+    pedantic = { level = "deny", priority = -1 }
+
+* cargo fmt
+
+## Hosting
+
+* deployed in scaleway
+* use managed postgres
+
+## Architecture
+
+inspired by hexagonal architecture.
+
+- data layer: only module to call the db, db and sql is not referenced elsewhere, except a opaque ref to manage transactions between several calls to the data layer
+- core: business logic, called by mcp and rest
+- search engine: manage search
+- encryption: manage encryption
+- mcp
+- rest api: routes, api structures and mapping to core
+
