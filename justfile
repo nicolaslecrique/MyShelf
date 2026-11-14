@@ -15,3 +15,7 @@ test:
 # Start the MCP server (config from myshelf.toml).
 run:
     cargo run
+
+# Build the production Docker image.
+docker-build:
+    docker build -t myshelf .
