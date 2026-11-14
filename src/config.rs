@@ -17,7 +17,9 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { listen_address: "127.0.0.1:3000".to_string() }
+        Self {
+            listen_address: "127.0.0.1:3000".to_string(),
+        }
     }
 }
 

@@ -22,17 +22,15 @@ use my_shelf::MyShelf;
 
 // `use` brings names into scope so we can write `tool` instead of `rmcp::tool`.
 // The braces group several imports from the same crate (library).
-use rmcp::{
-    transport::streamable_http_server::{
-        // Config for the HTTP transport (allowed hosts, keep-alive, etc.).
-        StreamableHttpServerConfig,
-        // The actual HTTP service that speaks MCP. Plugs into axum (the web framework).
-        StreamableHttpService,
-        // MCP is stateful: a client opens a session, then sends several requests.
-        // `LocalSessionManager` keeps those sessions in this process's memory
-        // (simple; sessions are lost on restart and can't be shared across servers).
-        session::local::LocalSessionManager,
-    },
+use rmcp::transport::streamable_http_server::{
+    // Config for the HTTP transport (allowed hosts, keep-alive, etc.).
+    StreamableHttpServerConfig,
+    // The actual HTTP service that speaks MCP. Plugs into axum (the web framework).
+    StreamableHttpService,
+    // MCP is stateful: a client opens a session, then sends several requests.
+    // `LocalSessionManager` keeps those sessions in this process's memory
+    // (simple; sessions are lost on restart and can't be shared across servers).
+    session::local::LocalSessionManager,
 };
 
 // `#[tokio::main]` turns `async fn main` into a normal `main` that starts the tokio

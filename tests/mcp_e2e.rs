@@ -28,7 +28,10 @@ async fn hello_world_tool_works_end_to_end() {
     // Check that our tool is advertised. `any` returns true if at least one tool
     // has the right name. The second argument is the failure message; `{tools:?}`
     // prints the whole list in debug format to show what was actually returned.
-    assert!(tools.iter().any(|t| t.name == "hello_world"), "tools: {tools:?}");
+    assert!(
+        tools.iter().any(|t| t.name == "hello_world"),
+        "tools: {tools:?}"
+    );
 
     // STEP 2 - invocation: call the tool (MCP `tools/call`) by name. `hello_world`
     // takes no arguments, so we only pass the name.
@@ -44,7 +47,11 @@ async fn hello_world_tool_works_end_to_end() {
     // A tool result is a list of content items (text, image, ...). We take the
     // first one, require it to be text (`as_text()` returns `None` otherwise),
     // and copy the string out.
-    let text = result.content[0].as_text().expect("text content").text.clone();
+    let text = result.content[0]
+        .as_text()
+        .expect("text content")
+        .text
+        .clone();
     // The real check: the server returned exactly what `hello_world` should say.
     assert_eq!(text, "Hello, world! This is MyShelf.");
 
