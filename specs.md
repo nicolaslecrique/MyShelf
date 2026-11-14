@@ -178,6 +178,8 @@ inspired by hexagonal architecture.
 - encryption: manage encryption
 - mcp
 - rest api: routes, api structures and mapping to core
+- figment for managing configuration
+
 
 ### Tests
 
