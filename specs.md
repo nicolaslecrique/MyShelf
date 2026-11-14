@@ -165,7 +165,7 @@ OICD identity provider: cloud logto
 
 ## Hosting
 
-* deployed in scaleway
+* deployed in Scaleway Serverless Containers
 * use managed postgres
 
 ## Architecture

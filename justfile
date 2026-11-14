@@ -11,3 +11,7 @@ clippy:
 
 test:
     cargo test --all-features --locked
+
+# Start the MCP server (config from myshelf.toml).
+run:
+    cargo run
