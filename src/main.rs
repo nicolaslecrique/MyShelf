@@ -14,11 +14,9 @@
 // between all incoming HTTP requests (handled concurrently on different threads).
 use std::sync::Arc;
 
-use figment::{
-    Figment,
-    providers::{Env, Format, Serialized, Toml},
-};
-use serde::{Deserialize, Serialize};
+mod config;
+
+use config::Config;
 
 // `use` brings names into scope so we can write `tool` instead of `rmcp::tool`.
 // The braces group several imports from the same crate (library).
@@ -38,34 +36,6 @@ use rmcp::{
         session::local::LocalSessionManager,
     },
 };
-
-/// Server configuration, loaded with figment from (lowest to highest priority):
-/// 1. built-in defaults,
-/// 2. the TOML file `myshelf.toml` (path overridable with `MYSHELF_CONFIG`;
-///    a missing file is fine),
-/// 3. environment variables prefixed `MYSHELF_` (e.g. `MYSHELF_LISTEN_ADDRESS`).
-#[derive(Debug, Deserialize, Serialize)]
-struct Config {
-    /// `host:port` the HTTP server binds to.
-    listen_address: String,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self { listen_address: "127.0.0.1:3000".to_string() }
-    }
-}
-
-impl Config {
-    fn load() -> Result<Self, Box<figment::Error>> {
-        let path = std::env::var("MYSHELF_CONFIG").unwrap_or_else(|_| "myshelf.toml".to_string());
-        Figment::from(Serialized::defaults(Self::default()))
-            .merge(Toml::file(path))
-            .merge(Env::prefixed("MYSHELF_"))
-            .extract()
-            .map_err(Box::new)
-    }
-}
 
 // `#[derive(Clone)]` auto-generates a `.clone()` method. The MCP service creates a
 // fresh server handler per session (see the closure in `main`), and the macros
