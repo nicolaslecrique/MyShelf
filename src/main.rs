@@ -14,6 +14,12 @@
 // between all incoming HTTP requests (handled concurrently on different threads).
 use std::sync::Arc;
 
+use figment::{
+    Figment,
+    providers::{Env, Format, Serialized, Toml},
+};
+use serde::{Deserialize, Serialize};
+
 // `use` brings names into scope so we can write `tool` instead of `rmcp::tool`.
 // The braces group several imports from the same crate (library).
 use rmcp::{
@@ -32,6 +38,34 @@ use rmcp::{
         session::local::LocalSessionManager,
     },
 };
+
+/// Server configuration, loaded with figment from (lowest to highest priority):
+/// 1. built-in defaults,
+/// 2. the TOML file `myshelf.toml` (path overridable with `MYSHELF_CONFIG`;
+///    a missing file is fine),
+/// 3. environment variables prefixed `MYSHELF_` (e.g. `MYSHELF_LISTEN_ADDRESS`).
+#[derive(Debug, Deserialize, Serialize)]
+struct Config {
+    /// `host:port` the HTTP server binds to.
+    listen_address: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { listen_address: "127.0.0.1:3000".to_string() }
+    }
+}
+
+impl Config {
+    fn load() -> Result<Self, Box<figment::Error>> {
+        let path = std::env::var("MYSHELF_CONFIG").unwrap_or_else(|_| "myshelf.toml".to_string());
+        Figment::from(Serialized::defaults(Self::default()))
+            .merge(Toml::file(path))
+            .merge(Env::prefixed("MYSHELF_"))
+            .extract()
+            .map_err(Box::new)
+    }
+}
 
 // `#[derive(Clone)]` auto-generates a `.clone()` method. The MCP service creates a
 // fresh server handler per session (see the closure in `main`), and the macros
@@ -78,7 +112,9 @@ impl MyShelf {
 // `Result<(), io::Error>` (`std::io::Result<()>`): returns Ok(()) on success, or an
 // I/O error (e.g. port already in use). Returning a Result from main lets us use
 // `?` below, and Rust prints the error and exits with a non-zero code if it fails.
-async fn main() -> std::io::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config::load()?;
+
     // Build the MCP-over-HTTP service. Arguments:
     let mcp = StreamableHttpService::new(
         // 1) A *factory closure* (`|| ...` is an anonymous function with no args).
@@ -104,10 +140,9 @@ async fn main() -> std::io::Result<()> {
     //   blocking the thread.
     // - `?` = "if this returned an Err, return that error from `main` right now;
     //   otherwise unwrap the Ok value". It's Rust's short form of error handling.
-    // The address can be overridden with `MYSHELF_ADDR` (used by the end-to-end test
-    // to pick a free port).
-    let addr = std::env::var("MYSHELF_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    // The address comes from the configuration (see `Config`).
+    let addr = &config.listen_address;
+    let listener = tokio::net::TcpListener::bind(addr).await?;
 
     // `println!` (the `!` marks a macro) prints a line to stdout so you know the
     // server is up and which URL to give your MCP client.
@@ -116,5 +151,6 @@ async fn main() -> std::io::Result<()> {
     // Run the HTTP server: accept connections and route them through `app`.
     // This future runs forever (until the process is killed or an error occurs).
     // It is the last expression (no `;`), so its Result is returned from `main`.
-    axum::serve(listener, app).await
+    axum::serve(listener, app).await?;
+    Ok(())
 }

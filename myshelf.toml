@@ -1,0 +1,6 @@
+# MyShelf configuration. Any key can be overridden by an env var
+# MYSHELF_<KEY> (e.g. MYSHELF_LISTEN_ADDRESS).
+
+# host:port the MCP HTTP server listens on.
+# 127.0.0.1 = local only; use 0.0.0.0 to accept outside connections.
+listen_address = "127.0.0.1:3000"

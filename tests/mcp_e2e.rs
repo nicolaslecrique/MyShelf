@@ -68,9 +68,9 @@ async fn hello_world_tool_works_end_to_end() {
         // the path to the freshly built `myshelf` binary. Cargo builds the binary
         // before running integration tests, so we always test the current code.
         Command::new(env!("CARGO_BIN_EXE_myshelf"))
-            // Tell the server which address to listen on (the env var we added to
-            // `main.rs`), so it uses our free port instead of 3000.
-            .env("MYSHELF_ADDR", addr.to_string())
+            // Override `listen_address` from the config (env vars take priority over
+            // the TOML file), so the server uses our free port instead of 3000.
+            .env("MYSHELF_LISTEN_ADDRESS", addr.to_string())
             // Discard the server's startup message so it doesn't clutter test output.
             .stdout(Stdio::null())
             // Actually start the process (non-blocking: it keeps running).
