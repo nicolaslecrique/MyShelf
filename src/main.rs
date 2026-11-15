@@ -27,10 +27,11 @@ use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig,
     // The actual HTTP service that speaks MCP. Plugs into axum (the web framework).
     StreamableHttpService,
-    // MCP is stateful: a client opens a session, then sends several requests.
-    // `LocalSessionManager` keeps those sessions in this process's memory
-    // (simple; sessions are lost on restart and can't be shared across servers).
-    session::local::LocalSessionManager,
+    // We run stateless: no sessions are created or stored. Each request is
+    // self-contained, so any instance can serve it (restarts, scale-to-zero and
+    // multiple instances on Scaleway are all fine). `NeverSessionManager` is the
+    // "no sessions" implementation.
+    session::never::NeverSessionManager,
 };
 
 // `#[tokio::main]` turns `async fn main` into a normal `main` that starts the tokio
@@ -50,13 +51,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         //    It is called to create a handler for each new session. `Ok(MyShelf)`
         //    wraps our unit struct in `Ok` because creation is allowed to fail.
         || Ok(MyShelf),
-        // 2) The session store, wrapped in `Arc` so it can be shared across threads.
-        //    `::default()` builds it with default settings.
-        Arc::new(LocalSessionManager::default()),
-        // 3) Transport settings. Only the `Host` header allow-list is customised:
-        //    the default accepts localhost only, which would reject every request
-        //    once deployed behind a public hostname.
-        StreamableHttpServerConfig::default().with_allowed_hosts(config.allowed_hosts.clone()),
+        // 2) The session manager, wrapped in `Arc` so it can be shared across threads.
+        //    Here: none (stateless).
+        Arc::new(NeverSessionManager::default()),
+        // 3) Transport settings:
+        //    - `legacy_session_mode(false)`: don't use the old session-based protocol.
+        //    - `allowed_hosts`: the default accepts localhost only, which would
+        //      reject every request once deployed behind a public hostname.
+        StreamableHttpServerConfig::default()
+            .with_legacy_session_mode(false)
+            .with_allowed_hosts(config.allowed_hosts.clone()),
     );
 
     // `axum::Router` maps URL paths to handlers. `nest_service("/mcp", mcp)` says:
