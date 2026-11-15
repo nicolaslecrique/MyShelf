@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Weekly: new security advisories appear even when the code doesn't change.
+    - cron: "0 6 * * 1"
 
 permissions:
   contents: read
@@ -46,3 +49,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@just
       - run: just test
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@cargo-deny
+      - run: just deny

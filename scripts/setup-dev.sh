@@ -15,4 +15,10 @@ else
   cargo install just --locked
 fi
 
+if command -v cargo-deny >/dev/null; then
+  echo "cargo-deny already installed: $(cargo deny --version)"
+else
+  cargo install cargo-deny --locked
+fi
+
 echo "Done. Run 'just' to execute all checks."
