@@ -21,4 +21,12 @@ else
   cargo install cargo-deny --locked
 fi
 
+# Code coverage (`just test`).
+rustup component add llvm-tools-preview
+if command -v cargo-llvm-cov >/dev/null; then
+  echo "cargo-llvm-cov already installed: $(cargo llvm-cov --version)"
+else
+  cargo install cargo-llvm-cov --locked
+fi
+
 echo "Done. Run 'just' to execute all checks."

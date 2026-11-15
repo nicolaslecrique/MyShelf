@@ -41,10 +41,23 @@ pub struct TestServer {
 
 impl Drop for TestServer {
     fn drop(&mut self) {
-        // `kill()` stops the process. `let _ =` deliberately ignores the Result: if
-        // it's already dead, we don't care.
+        // Ask the server to stop with SIGTERM (like the platform does) rather than
+        // SIGKILL: a gracefully exiting process flushes its code-coverage data,
+        // which a killed one cannot. We shell out to `kill` because sending a
+        // signal from Rust needs `unsafe` (denied in this project) or a dependency.
+        let _ = Command::new("kill")
+            .arg(self.child.id().to_string())
+            .status();
+        // `wait()` reaps the process so it doesn't linger as a "zombie". If the
+        // server ignored SIGTERM this would hang, so fall back to SIGKILL first
+        // when it has not exited after ~5 s.
+        for _ in 0..50 {
+            if matches!(self.child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
         let _ = self.child.kill();
-        // `wait()` reaps the dead process so it doesn't linger as a "zombie".
         let _ = self.child.wait();
     }
 }
@@ -96,6 +109,34 @@ impl TestServer {
         assert!(ready, "server did not start listening on {addr}");
 
         server
+    }
+
+    /// Sends `signal` (e.g. `"INT"`) to the server and waits up to 5 s for it to
+    /// exit; returns whether it exited successfully.
+    pub fn stop_with(&mut self, signal: &str) -> bool {
+        let _ = Command::new("kill")
+            .arg(format!("-{signal}"))
+            .arg(self.child.id().to_string())
+            .status();
+        for _ in 0..50 {
+            if let Ok(Some(status)) = self.child.try_wait() {
+                return status.success();
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        false
+    }
+
+    /// Sends a minimal HTTP GET and returns the raw response text.
+    pub async fn http_get(&self, path: &str) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut stream = tokio::net::TcpStream::connect(self.addr).await.unwrap();
+        let request =
+            format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        response
     }
 
     /// Connects an MCP client and performs the handshake.

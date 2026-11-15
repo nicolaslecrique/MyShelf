@@ -59,3 +59,22 @@ async fn hello_world_tool_works_end_to_end() {
     // passed, and the server is killed when `server` is dropped.
     client.cancel().await.ok();
 }
+
+/// The platform's liveness probe: `/health` must answer 200 "ok".
+#[tokio::test]
+async fn health_route_answers_ok() {
+    let server = TestServer::start().await;
+    let response = server.http_get("/health").await;
+    assert!(response.starts_with("HTTP/1.1 200"), "response: {response}");
+    assert!(response.ends_with("ok"), "response: {response}");
+}
+
+/// Ctrl-C (SIGINT) must stop the server cleanly, like SIGTERM does.
+#[tokio::test]
+async fn sigint_stops_server_gracefully() {
+    let mut server = TestServer::start().await;
+    assert!(
+        server.stop_with("INT"),
+        "server did not exit cleanly on SIGINT"
+    );
+}

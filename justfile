@@ -9,8 +9,10 @@ fmt:
 clippy:
     cargo clippy --all-targets --all-features --locked -- -D warnings
 
+# Runs the tests under coverage (needs cargo-llvm-cov) and fails if line coverage
+# drops below 95%. Stable Rust can't exclude code from coverage, so it's a floor.
 test:
-    cargo test --all-features --locked
+    cargo llvm-cov --all-features --locked --show-missing-lines --fail-under-lines 95
 
 # Licenses, advisories, banned/unknown sources (needs cargo-deny).
 deny:
