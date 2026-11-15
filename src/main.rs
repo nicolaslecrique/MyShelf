@@ -60,7 +60,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `axum::Router` maps URL paths to handlers. `nest_service("/mcp", mcp)` says:
     // "every request whose path starts with /mcp is handled by the MCP service".
     // This is why clients must connect to http://127.0.0.1:3000/mcp.
-    let app = axum::Router::new().nest_service("/mcp", mcp);
+    // `/health` is a liveness probe for the platform (e.g. Scaleway's health check).
+    let app = axum::Router::new()
+        .route("/health", axum::routing::get(|| async { "ok" }))
+        .nest_service("/mcp", mcp);
 
     // Open a TCP socket on port 3000 and start listening.
     // - 127.0.0.1 = localhost only: other machines can't connect (safer for dev;
