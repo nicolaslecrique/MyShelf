@@ -83,6 +83,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Run the HTTP server: accept connections and route them through `app`.
     // This future runs forever (until the process is killed or an error occurs).
     // It is the last expression (no `;`), so its Result is returned from `main`.
-    axum::serve(listener, app).await?;
+    // `with_graceful_shutdown`: when the given future completes, stop accepting new
+    // connections and let in-flight requests finish before returning.
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
     Ok(())
+}
+
+/// Resolves when the process is asked to stop.
+///
+/// Why this exists: on scale-down or redeploy, Scaleway sends SIGTERM and, if the
+/// process is still alive after a grace period, SIGKILLs it (cutting off any
+/// in-flight request). In a container our process is PID 1, and Linux ignores
+/// SIGTERM for PID 1 unless a handler is installed, so without this the server
+/// would never react and would always be killed the hard way.
+async fn shutdown_signal() {
+    use tokio::signal::unix::{SignalKind, signal};
+
+    let mut sigterm = signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
+    tokio::select! {
+        _ = sigterm.recv() => {}
+        // Ctrl-C (SIGINT), so stopping the server locally also exits cleanly.
+        _ = tokio::signal::ctrl_c() => {}
+    }
 }
