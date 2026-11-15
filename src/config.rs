@@ -17,6 +17,8 @@ pub struct Config {
     /// Behind a platform like Scaleway this must include the public hostname,
     /// otherwise every request is rejected. Env var form: a JSON list, e.g.
     /// `MYSHELF_ALLOWED_HOSTS='["my-app.functions.fnc.fr-par.scw.cloud"]'`.
+    /// An empty list (`'[]'`) accepts any host: use it only behind a gateway
+    /// that already routes by hostname (the Scaleway deployment does).
     pub allowed_hosts: Vec<String>,
 }
 

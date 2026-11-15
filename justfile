@@ -25,3 +25,10 @@ run:
 # Build the production Docker image.
 docker-build:
     docker build -t myshelf .
+
+# Deploy the image CI published for the current commit (HEAD must be pushed
+# to main and its CI run green).
+
+# Deploy the current commit to Scaleway (see README).
+deploy:
+    terraform -chdir=infra/scaleway apply -var "image_tag=$(git rev-parse HEAD)"

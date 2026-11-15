@@ -27,3 +27,9 @@ rustc-ice-*.txt
 # Added by cargo
 
 /target
+
+# Terraform: state can contain secrets, tfvars hold account-specific values.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
