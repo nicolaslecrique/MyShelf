@@ -53,8 +53,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 2) The session store, wrapped in `Arc` so it can be shared across threads.
         //    `::default()` builds it with default settings.
         Arc::new(LocalSessionManager::default()),
-        // 3) Transport settings; defaults are fine for local development.
-        StreamableHttpServerConfig::default(),
+        // 3) Transport settings. Only the `Host` header allow-list is customised:
+        //    the default accepts localhost only, which would reject every request
+        //    once deployed behind a public hostname.
+        StreamableHttpServerConfig::default().with_allowed_hosts(config.allowed_hosts.clone()),
     );
 
     // `axum::Router` maps URL paths to handlers. `nest_service("/mcp", mcp)` says:

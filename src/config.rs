@@ -13,12 +13,18 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     /// `host:port` the HTTP server binds to.
     pub listen_address: String,
+    /// Host names accepted in the HTTP `Host` header (DNS-rebinding protection).
+    /// Behind a platform like Scaleway this must include the public hostname,
+    /// otherwise every request is rejected. Env var form: a JSON list, e.g.
+    /// `MYSHELF_ALLOWED_HOSTS='["my-app.functions.fnc.fr-par.scw.cloud"]'`.
+    pub allowed_hosts: Vec<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             listen_address: "127.0.0.1:3000".to_string(),
+            allowed_hosts: ["localhost", "127.0.0.1", "::1"].map(String::from).to_vec(),
         }
     }
 }
