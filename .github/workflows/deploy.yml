@@ -1,0 +1,68 @@
+name: Deploy
+
+# Manual only: Actions tab > Deploy > Run workflow, then pick the image.
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image to deploy: a full commit sha CI published to ghcr.io (empty = head of the branch selected above)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# One deploy at a time, and never cancel one halfway through an apply.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Secrets and variables below live on this environment (Settings >
+    # Environments), which can also require a reviewer's approval to run.
+    environment:
+      name: production
+      url: ${{ steps.apply.outputs.mcp_url }}
+    env:
+      # Inputs go through env, never inlined into scripts (shell injection).
+      IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
+      SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}
+      SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+      TF_VAR_project_id: ${{ vars.SCW_PROJECT_ID }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - uses: actions/checkout@v7
+
+      # Only full shas: a moving tag like `latest` leaves the container's image
+      # string unchanged, so terraform would see nothing to redeploy.
+      - name: Check the image exists
+        run: |
+          if ! [[ "$IMAGE_TAG" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::image_tag must be a full 40-character commit sha, got '$IMAGE_TAG'"
+            exit 1
+          fi
+          repo="ghcr.io/${GITHUB_REPOSITORY,,}"
+          if ! docker buildx imagetools inspect "$repo:$IMAGE_TAG" > /dev/null; then
+            echo "::error::$repo:$IMAGE_TAG not found: was CI green on main for this commit?"
+            exit 1
+          fi
+          echo "TF_VAR_image_repository=$repo" >> "$GITHUB_ENV"
+          echo "TF_VAR_image_tag=$IMAGE_TAG" >> "$GITHUB_ENV"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "^1.10"
+          terraform_wrapper: false # plain stdout, so `terraform output` is usable
+      - uses: taiki-e/install-action@just
+
+      - run: just tf init -input=false -backend-config="bucket=$TF_STATE_BUCKET"
+
+      - id: apply
+        run: |
+          just tf apply -input=false -auto-approve
+          url="$(just tf output -raw mcp_url)"
+          echo "mcp_url=$url" >> "$GITHUB_OUTPUT"
+          echo "Deployed \`$IMAGE_TAG\` to $url" >> "$GITHUB_STEP_SUMMARY"

@@ -24,3 +24,15 @@ Without the two files (e.g. in CI), pass the same values directly:
 
 `just deploy` prints `mcp_url` at the end. The container is **public** (no
 authentication): anyone with the URL can call it.
+
+### Deploy from GitHub Actions
+
+The **Deploy** workflow is manual only: Actions > Deploy > Run workflow, then
+enter the commit sha of the image to deploy (leave it empty to deploy the head
+of the branch picked in "Use workflow from"). It checks the image exists on
+ghcr.io before running `terraform apply`. Once, in Settings > Environments,
+create a `production` environment with:
+
+- secrets `SCW_ACCESS_KEY` and `SCW_SECRET_KEY`
+- variables `SCW_PROJECT_ID` and `TF_STATE_BUCKET`
+- optionally, required reviewers, so every run waits for an approval
