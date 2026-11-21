@@ -1,0 +1,3 @@
+# Copy to backend.tfbackend (git-ignored) and set your state bucket: a Scaleway
+# Object Storage bucket in fr-par, created once by hand with versioning on.
+bucket = "myshelf-tfstate-changeme"
