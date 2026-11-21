@@ -1,10 +1,28 @@
 terraform {
-  required_version = ">= 1.5"
+  required_version = ">= 1.10" # use_lockfile below
   required_providers {
     scaleway = {
       source  = "scaleway/scaleway"
       version = "~> 2.92"
     }
+  }
+
+  # State lives in a Scaleway Object Storage bucket (S3-compatible), so any
+  # machine or CI job with the API key sees the same state. Bucket names are
+  # unique across Scaleway, so yours is passed at init (backend.tfbackend).
+  # The S3 backend reads AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY: `just tf`
+  # fills them from SCW_ACCESS_KEY/SCW_SECRET_KEY.
+  backend "s3" {
+    key          = "myshelf/terraform.tfstate"
+    region       = "fr-par"
+    endpoints    = { s3 = "https://s3.fr-par.scw.cloud" }
+    use_lockfile = true # lock object next to the state: no concurrent applies
+
+    # Skip checks that only make sense against AWS itself.
+    skip_credentials_validation = true
+    skip_region_validation      = true
+    skip_requesting_account_id  = true
+    skip_s3_checksum            = true
   }
 }
 

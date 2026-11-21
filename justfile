@@ -26,9 +26,14 @@ run:
 docker-build:
     docker build -t myshelf .
 
-# Deploy the image CI published for the current commit (HEAD must be pushed
-# to main and its CI run green).
+# Run terraform in infra/scaleway, e.g. `just tf plan`. The state backend speaks
+# S3 and only reads the AWS_* names, so it gets the Scaleway key under them.
+tf *args:
+    AWS_ACCESS_KEY_ID="$SCW_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="$SCW_SECRET_KEY" terraform -chdir=infra/scaleway {{args}}
 
-# Deploy the current commit to Scaleway (see README).
-deploy:
-    terraform -chdir=infra/scaleway apply -var "image_tag=$(git rev-parse HEAD)"
+# Once per checkout: download the provider and connect to the state bucket.
+tf-init: (tf "init" "-backend-config=backend.tfbackend")
+
+# Deploy the image CI published for the current commit to Scaleway (HEAD must
+# be pushed to main and its CI run green; see README).
+deploy: (tf "apply" "-var" "image_tag=$(git rev-parse HEAD)")

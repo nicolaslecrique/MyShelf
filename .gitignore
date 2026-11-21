@@ -28,8 +28,10 @@ rustc-ice-*.txt
 
 /target
 
-# Terraform: state can contain secrets, tfvars hold account-specific values.
+# Terraform: state can contain secrets, tfvars and tfbackend hold
+# account-specific values.
 .terraform/
 *.tfstate
 *.tfstate.*
 *.tfvars
+*.tfbackend
