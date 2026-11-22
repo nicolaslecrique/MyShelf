@@ -1,8 +1,11 @@
 # syntax=docker/dockerfile:1
 
-# Pinned to the Rust edition/toolchain used locally (edition 2024).
-FROM rust:1-slim AS chef
-RUN cargo install cargo-chef --locked
+# Official cargo-chef image (rust:1-slim with cargo-chef preinstalled, so it
+# isn't compiled from source on each new Rust release). Build stages only: the
+# runtime image below is distroless. cargo-chef pinned, Rust follows 1.x.
+# Bookworm (Debian 12) to match the runtime's glibc: a binary built against a
+# newer glibc (trixie, the plain `-slim` default) may not start on it.
+FROM lukemathwalker/cargo-chef:0.1.78-rust-1-slim-bookworm AS chef
 WORKDIR /app
 
 # Compute the dependency recipe (only changes when Cargo.toml/lock change).
