@@ -128,6 +128,9 @@ PostgreSQL	SQLx
 Migrations	SQLx migrations
 Authentication lib: oauth-resource-server
 OICD identity provider: cloud logto
+Monitoring.
+
+
 
 ## Out of Scope for MVP
 

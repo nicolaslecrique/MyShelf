@@ -36,3 +36,14 @@ create a `production` environment with:
 - secrets `SCW_ACCESS_KEY` and `SCW_SECRET_KEY`
 - variables `SCW_PROJECT_ID` and `TF_STATE_BUCKET`
 - optionally, required reviewers, so every run waits for an approval
+
+## Logs
+
+The server logs to stdout, one JSON object per line: one at startup, one per
+HTTP request (method, path, status, duration) and one at shutdown. Pipe through
+`jq` to read them locally (`just run | jq`). `log_filter` (`MYSHELF_LOG_FILTER`, see
+`myshelf.example.toml`) picks levels, e.g. `debug,rmcp=warn`.
+
+On Scaleway, Cockpit collects stdout: query the container's logs from
+Cockpit's Grafana (Explore), adding `| json` to filter on fields, e.g.
+`| json | status >= 500`. Logs kept for the default 7 days are free.

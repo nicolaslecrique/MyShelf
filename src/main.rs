@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 mod config;
+mod logging;
 mod my_shelf;
 
 use config::Config;
@@ -39,11 +40,17 @@ use rmcp::transport::streamable_http_server::{
 // execute them. We need async because a server spends most of its time waiting
 // on the network, and async lets one thread juggle many connections.
 #[tokio::main]
-// `Result<(), io::Error>` (`std::io::Result<()>`): returns Ok(()) on success, or an
-// I/O error (e.g. port already in use). Returning a Result from main lets us use
-// `?` below, and Rust prints the error and exits with a non-zero code if it fails.
+// `Box<dyn Error>`: "any error type" (e.g. port already in use). Returning a
+// Result from main lets us use `?` below, and Rust prints the error to stderr and
+// exits with a non-zero code if it fails.
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::load()?;
+    logging::init(&config)?;
+    // The log field is named after the variable. (Computed first: coverage
+    // reports expressions written inside `tracing` macros as missed even when
+    // they run.)
+    let version = env!("CARGO_PKG_VERSION");
+    tracing::info!(version, "starting");
 
     // Build the MCP-over-HTTP service. Arguments:
     let mcp = StreamableHttpService::new(
@@ -67,9 +74,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // "every request whose path starts with /mcp is handled by the MCP service".
     // This is why clients must connect to http://127.0.0.1:3000/mcp.
     // `/health` is a liveness probe for the platform (e.g. Scaleway's health check).
+    // `.layer(...)` wraps every route with `log_request`.
     let app = axum::Router::new()
         .route("/health", axum::routing::get(|| async { "ok" }))
-        .nest_service("/mcp", mcp);
+        .nest_service("/mcp", mcp)
+        .layer(axum::middleware::from_fn(log_request));
 
     // Open a TCP socket on port 3000 and start listening.
     // - 127.0.0.1 = localhost only: other machines can't connect (safer for dev;
@@ -82,9 +91,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = &config.listen_address;
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
-    // `println!` (the `!` marks a macro) prints a line to stdout so you know the
-    // server is up and which URL to give your MCP client.
-    println!("MyShelf MCP server listening on http://{addr}/mcp");
+    // Logs that the server is up and which URL to give your MCP client.
+    // `tracing::info!` (the `!` marks a macro) records an event with named
+    // fields; `logging.rs` decides how it is written.
+    let url = format!("http://{addr}/mcp");
+    tracing::info!(url, "listening");
 
     // Run the HTTP server: accept connections and route them through `app`.
     // This future runs forever (until the process is killed or an error occurs).
@@ -94,6 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+    tracing::info!("stopped");
     Ok(())
 }
 
@@ -108,9 +120,31 @@ async fn shutdown_signal() {
     use tokio::signal::unix::{SignalKind, signal};
 
     let mut sigterm = signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
-    tokio::select! {
-        _ = sigterm.recv() => {}
+    let signal = tokio::select! {
+        _ = sigterm.recv() => "SIGTERM",
         // Ctrl-C (SIGINT), so stopping the server locally also exits cleanly.
-        _ = tokio::signal::ctrl_c() => {}
-    }
+        _ = tokio::signal::ctrl_c() => "SIGINT",
+    };
+    tracing::info!(signal, "shutting down, finishing in-flight requests");
+}
+
+/// Middleware: logs one line per HTTP request once its response is ready.
+///
+/// `next.run(request)` passes the request on to the route and gives back its
+/// response, so the code around it runs before and after every handler.
+async fn log_request(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
+    let started = std::time::Instant::now();
+    let response = next.run(request).await;
+    let status = response.status().as_u16();
+    // Time until the response headers are ready. For streamed MCP replies the
+    // body may still be in flight.
+    let duration_ms = started.elapsed().as_secs_f64() * 1000.0;
+    // `%x` logs `x` with its `Display` (user-facing) format.
+    tracing::info!(%method, path, status, duration_ms, "request");
+    response
 }
