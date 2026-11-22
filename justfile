@@ -18,7 +18,7 @@ test:
 deny:
     cargo deny check
 
-# Start the MCP server (config from myshelf.toml).
+# Start the MCP server (built-in defaults, overridden by myshelf.toml if present).
 run:
     cargo run
 

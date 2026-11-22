@@ -35,3 +35,6 @@ rustc-ice-*.txt
 *.tfstate.*
 *.tfvars
 *.tfbackend
+
+# Local config overrides (see myshelf.example.toml).
+/myshelf.toml

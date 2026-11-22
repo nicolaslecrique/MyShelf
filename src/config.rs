@@ -5,10 +5,12 @@ use figment::{
 use serde::{Deserialize, Serialize};
 
 /// Server configuration, loaded with figment from (lowest to highest priority):
-/// 1. built-in defaults,
-/// 2. the TOML file `myshelf.toml` (path overridable with `MYSHELF_CONFIG`;
+/// 1. built-in defaults (the single source of truth, suited to local dev),
+/// 2. the optional TOML file `myshelf.toml` for local overrides (git-ignored,
+///    see `myshelf.example.toml`; path overridable with `MYSHELF_CONFIG`;
 ///    a missing file is fine),
-/// 3. environment variables prefixed `MYSHELF_` (e.g. `MYSHELF_LISTEN_ADDRESS`).
+/// 3. environment variables prefixed `MYSHELF_` (e.g. `MYSHELF_LISTEN_ADDRESS`),
+///    which is how deployments configure the server.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     /// `host:port` the HTTP server binds to.
@@ -20,6 +22,9 @@ pub struct Config {
     /// An empty list (`'[]'`) accepts any host: use it only behind a gateway
     /// that already routes by hostname (the Scaleway deployment does).
     pub allowed_hosts: Vec<String>,
+    /// Which logs to keep: a default level plus optional
+    /// per-crate levels, e.g. `info` or `debug,rmcp=warn`.
+    pub log_filter: String,
 }
 
 impl Default for Config {
@@ -27,6 +32,7 @@ impl Default for Config {
         Self {
             listen_address: "127.0.0.1:3000".to_string(),
             allowed_hosts: ["localhost", "127.0.0.1", "::1"].map(String::from).to_vec(),
+            log_filter: "info,rmcp=warn".to_string(),
         }
     }
 }

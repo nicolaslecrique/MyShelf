@@ -1,0 +1,19 @@
+# MyShelf configuration example. Every setting has a built-in default (shown
+# commented out below), so no file is needed. To override some locally, copy
+# this file to myshelf.toml (git-ignored) and uncomment what you change.
+# Any key can also be set with an env var MYSHELF_<KEY> (e.g.
+# MYSHELF_LISTEN_ADDRESS), which takes priority over the file. Deployments
+# use env vars only.
+
+# host:port the MCP HTTP server listens on.
+# 127.0.0.1 = local only; use 0.0.0.0 to accept outside connections.
+# listen_address = "127.0.0.1:3000"
+
+# Host names accepted in the HTTP Host header (DNS-rebinding protection).
+# When deployed, add the public hostname (e.g. Scaleway's *.scw.cloud one), or
+# set MYSHELF_ALLOWED_HOSTS='["my-app.functions.fnc.fr-par.scw.cloud"]'.
+# allowed_hosts = ["localhost", "127.0.0.1", "::1"]
+
+# Which logs to keep: a level, optionally with per-crate
+# levels. rmcp (the MCP library) is chatty at info.
+# log_filter = "info,rmcp=warn"

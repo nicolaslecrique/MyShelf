@@ -4,9 +4,15 @@
 //! WHY `tests/common/mod.rs` and not `tests/common.rs`: Cargo compiles every
 //! top-level file in `tests/` as its own test crate. A file inside a subdirectory is
 //! not compiled on its own; test files pull it in with `mod common;`.
+//!
+//! Each test file compiles its own copy of this module and uses only part of it,
+//! so unused-code warnings here are expected.
+#![allow(dead_code)]
 
 // `TcpListener` (blocking, std) is used only to ask the OS for a free port.
+use std::fs::File;
 use std::net::{SocketAddr, TcpListener};
+use std::path::PathBuf;
 // `Child` = a handle on a running subprocess. `Command` = builder to launch one.
 // `Stdio` = lets us choose what to do with the subprocess's input/output streams.
 use std::process::{Child, Command, Stdio};
@@ -37,6 +43,8 @@ pub type Client = RunningService<RoleClient, ()>;
 pub struct TestServer {
     child: Child,
     addr: SocketAddr,
+    /// File receiving the server's stdout (its logs), see [`TestServer::logs`].
+    log_file: PathBuf,
 }
 
 impl Drop for TestServer {
@@ -59,6 +67,7 @@ impl Drop for TestServer {
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
+        let _ = std::fs::remove_file(&self.log_file);
     }
 }
 
@@ -75,6 +84,11 @@ impl TestServer {
             .local_addr()
             .unwrap();
 
+        // The server logs to stdout. We send that to a file rather than a pipe:
+        // a pipe nobody reads fills up and then blocks the server on its next log.
+        // The port makes the name unique among concurrently running tests.
+        let log_file = std::env::temp_dir().join(format!("myshelf-test-{}.log", addr.port()));
+
         // `env!("CARGO_BIN_EXE_myshelf")` is resolved at compile time by Cargo: it's
         // the path to the freshly built `myshelf` binary. Cargo builds the binary
         // before running integration tests, so we always test the current code.
@@ -82,15 +96,22 @@ impl TestServer {
             // Override `listen_address` from the config (env vars take priority over
             // the TOML file), so the server uses our free port instead of 3000.
             .env("MYSHELF_LISTEN_ADDRESS", addr.to_string())
-            // Discard the server's startup message so it doesn't clutter test output.
-            .stdout(Stdio::null())
+            // WHY: point the config file at a path that doesn't exist, so tests run
+            // on the built-in defaults and a developer's local `myshelf.toml`
+            // (e.g. `log_filter = "trace"`) can't change their behaviour.
+            .env("MYSHELF_CONFIG", "/nonexistent/myshelf.toml")
+            .stdout(Stdio::from(File::create(&log_file).unwrap()))
             // Actually start the process (non-blocking: it keeps running).
             .spawn()
             .expect("failed to start server");
 
         // Build the guard right away so the process is cleaned up even if the
         // readiness check below panics.
-        let server = Self { child, addr };
+        let server = Self {
+            child,
+            addr,
+            log_file,
+        };
 
         // The process starting is not the same as the server being ready to accept
         // connections, so we poll until it is. Otherwise the client could connect
@@ -125,6 +146,11 @@ impl TestServer {
             std::thread::sleep(Duration::from_millis(100));
         }
         false
+    }
+
+    /// Everything the server has written to stdout so far.
+    pub fn logs(&self) -> String {
+        std::fs::read_to_string(&self.log_file).unwrap()
     }
 
     /// Sends a minimal HTTP GET and returns the raw response text.
