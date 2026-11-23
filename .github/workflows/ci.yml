@@ -61,11 +61,11 @@ jobs:
       - uses: taiki-e/install-action@cargo-deny
       - run: just deny
 
-  # Publish the image to GitHub Container Registry once every check above has
-  # passed, on pushes to main only (not PRs, not the weekly scheduled run).
-  # Tags: the full commit sha (what deployments pin to) and `latest`.
+  # The image is built in parallel with the checks above (so CI takes as long
+  # as the slowest job, not the sum), on pushes to main only (not PRs, not the
+  # weekly scheduled run). It is pushed under a `candidate-<sha>` tag only:
+  # deployments accept full shas only, so a candidate can't be deployed.
   docker:
-    needs: [fmt, clippy, test, deny]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -84,9 +84,7 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=sha,format=long,prefix=
-            type=raw,value=latest
+          tags: type=sha,format=long,prefix=candidate-
       - uses: docker/build-push-action@v7
         with:
           # amd64 only: that's what Scaleway Serverless Containers run.
@@ -97,3 +95,24 @@ jobs:
           # Reuse cached layers (notably the cargo-chef dependency layer).
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Once every check has passed, publish the candidate image: add the full
+  # commit sha tag (what deployments pin to) and `latest`. A retag, not a
+  # rebuild: the image published is exactly the one built above.
+  publish:
+    needs: [fmt, clippy, test, deny, docker]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          repo="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker buildx imagetools create \
+            --tag "$repo:$GITHUB_SHA" \
+            --tag "$repo:latest" \
+            "$repo:candidate-$GITHUB_SHA"

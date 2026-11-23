@@ -1,8 +1,11 @@
 # syntax=docker/dockerfile:1
 
-# Pinned to the Rust edition/toolchain used locally (edition 2024).
-FROM rust:1-slim AS chef
-RUN cargo install cargo-chef --locked
+# Official cargo-chef image (rust:1-slim with cargo-chef preinstalled, so it
+# isn't compiled from source on each new Rust release). Build stages only: the
+# runtime image below is distroless. cargo-chef pinned, Rust follows 1.x.
+# Trixie (Debian 13), the same Debian as the runtime image: a binary built
+# against a newer glibc than the runtime's may not start. Change both together.
+FROM lukemathwalker/cargo-chef:0.1.78-rust-1-slim-trixie AS chef
 WORKDIR /app
 
 # Compute the dependency recipe (only changes when Cargo.toml/lock change).
@@ -20,7 +23,7 @@ COPY src ./src
 RUN cargo build --release --locked
 
 # Minimal runtime: glibc + CA certs + non-root user, no shell.
-FROM gcr.io/distroless/cc-debian12:nonroot
+FROM gcr.io/distroless/cc-debian13:nonroot
 COPY --from=builder /app/target/release/myshelf /myshelf
 # Scaleway Serverless Containers: set the container port to 8080.
 ENV MYSHELF_LISTEN_ADDRESS=0.0.0.0:8080
