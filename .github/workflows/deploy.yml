@@ -52,7 +52,7 @@ jobs:
           echo "TF_VAR_image_repository=$repo" >> "$GITHUB_ENV"
           echo "TF_VAR_image_tag=$IMAGE_TAG" >> "$GITHUB_ENV"
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "^1.10"
           terraform_wrapper: false # plain stdout, so `terraform output` is usable
