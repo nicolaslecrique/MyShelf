@@ -12,3 +12,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # Dockerfile base images: bumps the pinned cargo-chef version
+  # (0.1.78-rust-1-slim-trixie -> 0.1.79-rust-1-slim-trixie). The distroless
+  # `nonroot` tag carries no version, so Dependabot leaves it alone.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
