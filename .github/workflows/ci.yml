@@ -103,11 +103,25 @@ jobs:
           cache-from: type=gha
           cache-to: ${{ env.PUBLISH == 'true' && 'type=gha,mode=max' || '' }}
 
+  # The single check the `main` ruleset requires before a PR can merge, so
+  # new jobs are added to this `needs` list, not to the ruleset.
+  # `always()` is essential: without it a failed dependency makes this job
+  # *skipped*, and GitHub treats a skipped required check as passing.
+  # Skipped dependencies are fine (e.g. `docker` on the scheduled run).
+  ci-ok:
+    needs: [fmt, clippy, test, deny, docker]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+      - run: echo "all checks passed"
+
   # Once every check has passed, publish the candidate image: add the full
   # commit sha tag (what deployments pin to) and `latest`. A retag, not a
   # rebuild: the image published is exactly the one built above.
   publish:
-    needs: [fmt, clippy, test, deny, docker]
+    needs: [ci-ok]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
