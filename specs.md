@@ -106,9 +106,9 @@ For now, when we modify a schema, we check that all items of the shelf are still
 
 ### Authentication
 
-Identity Provider: Generic OIDC, using Logto Cloud initially.
+Identity Provider: Generic OIDC, using WorkOS initially.
 Authentication: oauth-resource-server for JWT validation (JWKS, issuer, audience, expiration).
-OAuth flow: Authorization Code + PKCE, handled by the MCP client and Logto.
+OAuth flow: Authorization Code + PKCE, handled by the MCP client and WorkOS.
 Authorization: No granular permissions or scopes required. Users have full access to their own data only.
 Data isolation: Every resource is associated with its owner's user ID (sub from the JWT). All database operations enforce ownership.
 Architecture: Shared authentication and business logic between REST and MCP.

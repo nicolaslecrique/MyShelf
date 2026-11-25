@@ -1,5 +1,6 @@
-//! End-to-end test of the `hello_world` MCP tool: talks to the real server binary
-//! as an MCP client over HTTP.
+//! End-to-end test of the public MCP endpoint (`/public/mcp`, no login) and its
+//! `hello_world` tool: talks to the real server binary as an MCP client over
+//! HTTP. Login on `/mcp` is tested in `auth.rs`.
 //!
 //! WHY end-to-end: unit tests can't catch wiring mistakes (wrong route, broken
 //! session handling, tool not registered). Here we exercise exactly what a real
@@ -32,6 +33,11 @@ async fn hello_world_tool_works_end_to_end() {
         tools.iter().any(|t| t.name == "hello_world"),
         "tools: {tools:?}"
     );
+    // Tools that need a logged-in user are not offered here.
+    assert!(
+        !tools.iter().any(|t| t.name == "hello_me"),
+        "tools: {tools:?}"
+    );
 
     // STEP 2 - invocation: call the tool (MCP `tools/call`) by name. `hello_world`
     // takes no arguments, so we only pass the name.
@@ -58,6 +64,14 @@ async fn hello_world_tool_works_end_to_end() {
     // Politely close the MCP session. `.ok()` ignores any error: the test already
     // passed, and the server is killed when `server` is dropped.
     client.cancel().await.ok();
+}
+
+/// Without login configured, `/mcp` is not served at all.
+#[tokio::test]
+async fn mcp_is_not_served_without_auth_config() {
+    let server = TestServer::start().await;
+    let response = server.http_request("POST", "/mcp", &[], "{}").await;
+    assert!(response.starts_with("HTTP/1.1 404"), "response: {response}");
 }
 
 /// The platform's liveness probe: `/health` must answer 200 "ok".

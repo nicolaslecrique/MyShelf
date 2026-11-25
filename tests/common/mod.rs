@@ -1,5 +1,5 @@
-//! Shared setup for end-to-end tests: launches the real server binary and connects
-//! an MCP client to it.
+//! Shared setup for end-to-end tests: launches the real server binary, connects
+//! an MCP client to it, and fakes an identity provider for the login tests.
 //!
 //! WHY `tests/common/mod.rs` and not `tests/common.rs`: Cargo compiles every
 //! top-level file in `tests/` as its own test crate. A file inside a subdirectory is
@@ -8,6 +8,9 @@
 //! Each test file compiles its own copy of this module and uses only part of it,
 //! so unused-code warnings here are expected.
 #![allow(dead_code)]
+
+pub mod provider;
+pub use provider::FakeProvider;
 
 // `TcpListener` (blocking, std) is used only to ask the OS for a free port.
 use std::fs::File;
@@ -27,6 +30,7 @@ use rmcp::{
     // The client side of the HTTP transport: it sends JSON-RPC messages to a URL
     // (this is the counterpart of `StreamableHttpService` in the server).
     transport::StreamableHttpClientTransport,
+    transport::streamable_http_client::StreamableHttpClientTransportConfig,
 };
 
 /// The client handle returned by [`TestServer::connect`].
@@ -72,8 +76,26 @@ impl Drop for TestServer {
 }
 
 impl TestServer {
-    /// Starts the server on a free port and waits until it accepts connections.
+    /// Starts the server without login configured (only `/public/mcp` served).
     pub async fn start() -> Self {
+        Self::start_with(|_| Vec::new()).await
+    }
+
+    /// Starts the server with login through `provider`.
+    pub async fn start_with_auth(provider: &FakeProvider) -> Self {
+        let issuer = provider.issuer();
+        Self::start_with(|addr| {
+            vec![
+                ("MYSHELF_AUTH__ISSUER", issuer),
+                ("MYSHELF_AUTH__RESOURCE", format!("http://{addr}/mcp")),
+            ]
+        })
+        .await
+    }
+
+    /// Starts the server on a free port and waits until it accepts connections.
+    /// `env` returns extra environment variables, given the server's address.
+    pub async fn start_with(env: impl FnOnce(SocketAddr) -> Vec<(&'static str, String)>) -> Self {
         // Ask the OS for a free port: binding to port 0 means "pick any unused one".
         // WHY: the server's default port (3000) might be taken (e.g. you're running
         // the server in another terminal), and hardcoding would make tests flaky.
@@ -100,6 +122,7 @@ impl TestServer {
             // on the built-in defaults and a developer's local `myshelf.toml`
             // (e.g. `log_filter = "trace"`) can't change their behaviour.
             .env("MYSHELF_CONFIG", "/nonexistent/myshelf.toml")
+            .envs(env(addr))
             .stdout(Stdio::from(File::create(&log_file).unwrap()))
             // Actually start the process (non-blocking: it keeps running).
             .spawn()
@@ -153,26 +176,61 @@ impl TestServer {
         std::fs::read_to_string(&self.log_file).unwrap()
     }
 
+    /// The `/mcp` URL, which is also the `resource` tokens must be issued for.
+    pub fn resource(&self) -> String {
+        format!("http://{}/mcp", self.addr)
+    }
+
     /// Sends a minimal HTTP GET and returns the raw response text.
     pub async fn http_get(&self, path: &str) -> String {
+        self.http_request("GET", path, &[], "").await
+    }
+
+    /// Sends a minimal HTTP request and returns the raw response text.
+    pub async fn http_request(
+        &self,
+        method: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: &str,
+    ) -> String {
+        use std::fmt::Write;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let mut stream = tokio::net::TcpStream::connect(self.addr).await.unwrap();
-        let request =
-            format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+        let mut request = format!(
+            "{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: {}\r\n",
+            body.len()
+        );
+        for (name, value) in headers {
+            write!(request, "{name}: {value}\r\n").unwrap();
+        }
+        request.push_str("\r\n");
+        request.push_str(body);
         stream.write_all(request.as_bytes()).await.unwrap();
         let mut response = String::new();
         stream.read_to_string(&mut response).await.unwrap();
         response
     }
 
-    /// Connects an MCP client and performs the handshake.
+    /// Connects an MCP client to `/public/mcp` (no login).
     pub async fn connect(&self) -> Client {
-        // The `/mcp` path must match the `nest_service("/mcp", ...)` in `main.rs`.
-        let transport =
-            StreamableHttpClientTransport::from_uri(format!("http://{}/mcp", self.addr));
+        self.try_connect("/public/mcp", None)
+            .await
+            .expect("MCP handshake failed")
+    }
+
+    /// Connects an MCP client to `path`, sending `token` as a bearer token.
+    pub async fn try_connect(&self, path: &str, token: Option<&str>) -> Result<Client, String> {
+        // The paths match the `nest_service(...)` calls in `main.rs`.
+        let mut config =
+            StreamableHttpClientTransportConfig::with_uri(format!("http://{}{path}", self.addr));
+        if let Some(token) = token {
+            config = config.auth_header(token);
+        }
+        let transport = StreamableHttpClientTransport::from_config(config);
         // `()` is the simplest possible client handler (it ignores server-initiated
         // requests, which we don't need). `.serve(transport)` performs the MCP
         // handshake (the `initialize` exchange).
-        ().serve(transport).await.expect("MCP handshake failed")
+        ().serve(transport).await.map_err(|e| e.to_string())
     }
 }

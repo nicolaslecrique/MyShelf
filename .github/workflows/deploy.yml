@@ -32,6 +32,9 @@ jobs:
       SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
       TF_VAR_project_id: ${{ vars.SCW_PROJECT_ID }}
       TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      # Optional (empty: /mcp is not served, only /public/mcp).
+      TF_VAR_auth_issuer: ${{ vars.AUTH_ISSUER }}
+      TF_VAR_auth_resource: ${{ vars.AUTH_RESOURCE }}
       TF_IN_AUTOMATION: "true"
     steps:
       - uses: actions/checkout@v7

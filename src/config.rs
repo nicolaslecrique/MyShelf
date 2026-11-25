@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 ///    see `myshelf.example.toml`; path overridable with `MYSHELF_CONFIG`;
 ///    a missing file is fine),
 /// 3. environment variables prefixed `MYSHELF_` (e.g. `MYSHELF_LISTEN_ADDRESS`),
-///    which is how deployments configure the server.
+///    which is how deployments configure the server. `__` separates nested keys:
+///    `MYSHELF_AUTH__ISSUER` sets `auth.issuer`.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     /// `host:port` the HTTP server binds to.
@@ -25,6 +26,26 @@ pub struct Config {
     /// Which logs to keep: a default level plus optional
     /// per-crate levels, e.g. `info` or `debug,rmcp=warn`.
     pub log_filter: String,
+    /// Login for the `/mcp` endpoint. Without it, `/mcp` is not served (only
+    /// `/public/mcp` is): nothing is ever exposed unauthenticated by mistake.
+    pub auth: Option<AuthConfig>,
+}
+
+/// The `OAuth` / `OpenID Connect` provider users log in with (`WorkOS` `AuthKit`,
+/// Keycloak, Logto...). `MyShelf` only checks the access tokens it issues, so
+/// nothing here is specific to one provider.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AuthConfig {
+    /// The provider's issuer URL, exactly as in its tokens' `iss` claim (and its
+    /// metadata's `issuer` field), e.g. `https://auth.example.com`.
+    pub issuer: String,
+    /// This server's public `/mcp` URL, e.g. `https://mcp.example.com/mcp`.
+    /// Tokens must name it in their `aud` claim, so that a token issued for
+    /// another app by the same provider is refused here.
+    pub resource: String,
+    /// Where the provider publishes its signing keys. Optional: found from the
+    /// issuer's metadata (`/.well-known/...`) when not set.
+    pub jwks_uri: Option<String>,
 }
 
 impl Default for Config {
@@ -33,6 +54,7 @@ impl Default for Config {
             listen_address: "127.0.0.1:3000".to_string(),
             allowed_hosts: ["localhost", "127.0.0.1", "::1"].map(String::from).to_vec(),
             log_filter: "info,rmcp=warn".to_string(),
+            auth: None,
         }
     }
 }
@@ -46,7 +68,7 @@ impl Config {
         let path = std::env::var("MYSHELF_CONFIG").unwrap_or_else(|_| "myshelf.toml".to_string());
         Figment::from(Serialized::defaults(Self::default()))
             .merge(Toml::file(path))
-            .merge(Env::prefixed("MYSHELF_"))
+            .merge(Env::prefixed("MYSHELF_").split("__"))
             .extract()
             .map_err(Box::new)
     }
