@@ -20,6 +20,9 @@ allow = [
     "ISC",
     "Unicode-3.0",
     "Zlib",
+    # Permissive license for data, here Mozilla's list of trusted TLS root
+    # certificates (webpki-root-certs, used by reqwest's TLS).
+    "CDLA-Permissive-2.0",
     "AGPL-3.0-only",
 ]
 

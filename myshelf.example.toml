@@ -17,3 +17,19 @@
 # Which logs to keep: a level, optionally with per-crate
 # levels. rmcp (the MCP library) is chatty at info.
 # log_filter = "info,rmcp=warn"
+
+# Login for the /mcp endpoint, with any OAuth / OpenID Connect provider (WorkOS
+# AuthKit, Keycloak, Logto...). Without this section /mcp is not served, only
+# /public/mcp (no login, public tools only). See README "Login".
+# Env var form: MYSHELF_AUTH__ISSUER, MYSHELF_AUTH__RESOURCE.
+# [auth]
+# The provider's issuer, exactly as in its tokens' `iss` claim.
+# issuer = "https://<name>.authkit.app"
+# This server's public /mcp URL; tokens must carry it as their audience (`aud`).
+# resource = "https://mcp.example.com/mcp"
+# Seconds after which the provider's signing keys are fetched again.
+# keys_max_age_secs = 3600
+# Minimum seconds between two fetches caused by tokens with an unknown key id.
+# keys_min_refresh_interval_secs = 30
+# Timeout, in seconds, of each request to the provider.
+# http_timeout_secs = 5

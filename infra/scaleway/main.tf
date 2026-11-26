@@ -49,12 +49,16 @@ resource "scaleway_container" "main" {
   privacy                = "public"
   https_connections_only = true
 
-  environment_variables = {
+  # Unset (empty) values are left out: without the auth ones, /mcp is not
+  # served. None are secrets: the issuer and resource are public anyway.
+  environment_variables = { for name, value in {
     # Accept any Host header. Scaleway's gateway already routes by hostname, so
     # only requests for this container's domain ever reach it; the app-level
     # check (DNS-rebinding protection for local servers) adds nothing here.
-    MYSHELF_ALLOWED_HOSTS = "[]"
-  }
+    MYSHELF_ALLOWED_HOSTS  = "[]"
+    MYSHELF_AUTH__ISSUER   = var.auth_issuer
+    MYSHELF_AUTH__RESOURCE = var.auth_resource
+  } : name => value if value != "" }
 
   liveness_probe {
     http {

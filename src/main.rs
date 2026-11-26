@@ -1,6 +1,8 @@
 // BACKGROUND: MCP (Model Context Protocol) is a protocol that lets an AI client
 // (e.g. Claude) discover and call "tools" exposed by a server. This file is such
-// a server. It exposes one tool, `hello_world`, over HTTP at /mcp.
+// a server. It serves MCP over HTTP at two endpoints:
+// - /mcp, for logged-in users (see `auth.rs`): every tool,
+// - /public/mcp, with no login: only the tools that need none (`hello_world`).
 
 // `#![...]` (with the `!`) is an *inner attribute*: it applies to the whole file/crate.
 // `allow(...)` silences a lint (a compiler/clippy warning). This project sets clippy
@@ -14,11 +16,13 @@
 // between all incoming HTTP requests (handled concurrently on different threads).
 use std::sync::Arc;
 
+mod auth;
 mod config;
 mod logging;
 mod my_shelf;
 
-use config::Config;
+use auth::{Auth, AuthSettings};
+use config::{AuthConfig, Config};
 use my_shelf::MyShelf;
 
 // `use` brings names into scope so we can write `tool` instead of `rmcp::tool`.
@@ -52,33 +56,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let version = env!("CARGO_PKG_VERSION");
     tracing::info!(version, "starting");
 
-    // Build the MCP-over-HTTP service. Arguments:
-    let mcp = StreamableHttpService::new(
-        // 1) A *factory closure* (`|| ...` is an anonymous function with no args).
-        //    It is called to create a handler for each new session. `Ok(MyShelf)`
-        //    wraps our unit struct in `Ok` because creation is allowed to fail.
-        || Ok(MyShelf),
-        // 2) The session manager, wrapped in `Arc` so it can be shared across threads.
-        //    Here: none (stateless).
-        Arc::new(NeverSessionManager::default()),
-        // 3) Transport settings:
-        //    - `legacy_session_mode(false)`: don't use the old session-based protocol.
-        //    - `allowed_hosts`: the default accepts localhost only, which would
-        //      reject every request once deployed behind a public hostname.
-        StreamableHttpServerConfig::default()
-            .with_legacy_session_mode(false)
-            .with_allowed_hosts(config.allowed_hosts.clone()),
-    );
-
-    // `axum::Router` maps URL paths to handlers. `nest_service("/mcp", mcp)` says:
-    // "every request whose path starts with /mcp is handled by the MCP service".
-    // This is why clients must connect to http://127.0.0.1:3000/mcp.
-    // `/health` is a liveness probe for the platform (e.g. Scaleway's health check).
-    // `.layer(...)` wraps every route with `log_request`.
-    let app = axum::Router::new()
+    // `axum::Router` maps URL paths to handlers. `nest_service("/public/mcp", ...)`
+    // says: "every request whose path starts with /public/mcp is handled by this
+    // MCP service". `/health` is a liveness probe for the platform (e.g.
+    // Scaleway's health check).
+    let mut app = axum::Router::new()
         .route("/health", axum::routing::get(|| async { "ok" }))
-        .nest_service("/mcp", mcp)
-        .layer(axum::middleware::from_fn(log_request));
+        .nest_service("/public/mcp", mcp_service(MyShelf::public, &config));
+
+    // `/mcp` is served only when login is configured, so that it can never be
+    // reached without a token by mistake.
+    if let Some(auth_config) = &config.auth {
+        let auth =
+            Arc::new(Auth::new(auth_settings(auth_config)).map_err(|e| format!("auth: {e}"))?);
+        let mcp = axum::Router::new()
+            .nest_service("/mcp", mcp_service(MyShelf::logged_in, &config))
+            // `.layer` on this small router wraps only `/mcp`: every request
+            // goes through `require_login` first.
+            .layer(axum::middleware::from_fn_with_state(
+                Arc::clone(&auth),
+                auth::require_login,
+            ));
+        // `merge` adds another router's routes to this one.
+        app = app.merge(mcp).merge(auth.routes());
+    } else {
+        tracing::warn!("auth is not configured: /mcp is disabled, only /public/mcp is served");
+    }
+    // `.layer(...)` wraps every route with `log_request`.
+    let app = app.layer(axum::middleware::from_fn(log_request));
 
     // Open a TCP socket on port 3000 and start listening.
     // - 127.0.0.1 = localhost only: other machines can't connect (safer for dev;
@@ -94,7 +99,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Logs that the server is up and which URL to give your MCP client.
     // `tracing::info!` (the `!` marks a macro) records an event with named
     // fields; `logging.rs` decides how it is written.
-    let url = format!("http://{addr}/mcp");
+    let path = if config.auth.is_some() {
+        "/mcp"
+    } else {
+        "/public/mcp"
+    };
+    let url = format!("http://{addr}{path}");
     tracing::info!(url, "listening");
 
     // Run the HTTP server: accept connections and route them through `app`.
@@ -107,6 +117,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     tracing::info!("stopped");
     Ok(())
+}
+
+/// What `auth.rs` needs, from our configuration. `auth.rs` doesn't read the
+/// config itself, so that it doesn't depend on the rest of the app.
+fn auth_settings(config: &AuthConfig) -> AuthSettings {
+    use std::time::Duration;
+    AuthSettings {
+        issuer: config.issuer.clone(),
+        resource: config.resource.clone(),
+        resource_name: "MyShelf".to_string(),
+        keys_max_age: Duration::from_secs(config.keys_max_age_secs),
+        keys_min_refresh_interval: Duration::from_secs(config.keys_min_refresh_interval_secs),
+        http_timeout: Duration::from_secs(config.http_timeout_secs),
+    }
+}
+
+/// Builds an MCP-over-HTTP service whose handler is created by `new_handler`.
+///
+/// `fn() -> MyShelf` is the type of a plain function taking no argument and
+/// returning a `MyShelf`, e.g. `MyShelf::public`.
+fn mcp_service(
+    new_handler: fn() -> MyShelf,
+    config: &Config,
+) -> StreamableHttpService<MyShelf, NeverSessionManager> {
+    StreamableHttpService::new(
+        // 1) A *factory closure* (`|| ...` is an anonymous function with no args).
+        //    It is called to create a handler for each request. It wraps the
+        //    handler in `Ok` because creation is allowed to fail. `move` copies
+        //    `new_handler` into the closure, which outlives this function.
+        move || Ok(new_handler()),
+        // 2) The session manager, wrapped in `Arc` so it can be shared across threads.
+        //    Here: none (stateless).
+        Arc::new(NeverSessionManager::default()),
+        // 3) Transport settings:
+        //    - `legacy_session_mode(false)`: don't use the old session-based protocol.
+        //    - `allowed_hosts`: the default accepts localhost only, which would
+        //      reject every request once deployed behind a public hostname.
+        StreamableHttpServerConfig::default()
+            .with_legacy_session_mode(false)
+            .with_allowed_hosts(config.allowed_hosts.clone()),
+    )
 }
 
 /// Resolves when the process is asked to stop.
