@@ -31,3 +31,9 @@
 # its metadata (<issuer>/.well-known/oauth-authorization-server or
 # <issuer>/.well-known/openid-configuration).
 # jwks_uri = "https://<name>.authkit.app/oauth2/jwks"
+# Seconds after which the provider's signing keys are fetched again.
+# keys_max_age_secs = 3600
+# Minimum seconds between two fetches caused by tokens with an unknown key id.
+# keys_min_refresh_interval_secs = 30
+# Timeout, in seconds, of each request to the provider.
+# http_timeout_secs = 5

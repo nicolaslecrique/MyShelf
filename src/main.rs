@@ -21,8 +21,8 @@ mod config;
 mod logging;
 mod my_shelf;
 
-use auth::Auth;
-use config::Config;
+use auth::{Auth, AuthSettings};
+use config::{AuthConfig, Config};
 use my_shelf::MyShelf;
 
 // `use` brings names into scope so we can write `tool` instead of `rmcp::tool`.
@@ -67,7 +67,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `/mcp` is served only when login is configured, so that it can never be
     // reached without a token by mistake.
     if let Some(auth_config) = &config.auth {
-        let auth = Arc::new(Auth::new(auth_config)?);
+        let auth =
+            Arc::new(Auth::new(auth_settings(auth_config)).map_err(|e| format!("auth: {e}"))?);
         let mcp = axum::Router::new()
             .nest_service("/mcp", mcp_service(MyShelf::logged_in, &config))
             // `.layer` on this small router wraps only `/mcp`: every request
@@ -116,6 +117,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     tracing::info!("stopped");
     Ok(())
+}
+
+/// What `auth.rs` needs, from our configuration. `auth.rs` doesn't read the
+/// config itself, so that it doesn't depend on the rest of the app.
+fn auth_settings(config: &AuthConfig) -> AuthSettings {
+    use std::time::Duration;
+    AuthSettings {
+        issuer: config.issuer.clone(),
+        resource: config.resource.clone(),
+        jwks_uri: config.jwks_uri.clone(),
+        resource_name: Some("MyShelf".to_string()),
+        keys_max_age: Duration::from_secs(config.keys_max_age_secs),
+        keys_min_refresh_interval: Duration::from_secs(config.keys_min_refresh_interval_secs),
+        http_timeout: Duration::from_secs(config.http_timeout_secs),
+    }
 }
 
 /// Builds an MCP-over-HTTP service whose handler is created by `new_handler`.

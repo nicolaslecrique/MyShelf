@@ -46,6 +46,34 @@ pub struct AuthConfig {
     /// Where the provider publishes its signing keys. Optional: found from the
     /// issuer's metadata (`/.well-known/...`) when not set.
     pub jwks_uri: Option<String>,
+    /// Seconds after which the provider's signing keys are fetched again, so
+    /// that a key it removed (rotated out, revoked) stops being accepted.
+    #[serde(default = "AuthConfig::default_keys_max_age_secs")]
+    pub keys_max_age_secs: u64,
+    /// Minimum seconds between two fetches of the keys caused by tokens signed
+    /// with an unknown key (anyone can send such tokens).
+    #[serde(default = "AuthConfig::default_keys_min_refresh_interval_secs")]
+    pub keys_min_refresh_interval_secs: u64,
+    /// Timeout, in seconds, of each request to the provider.
+    #[serde(default = "AuthConfig::default_http_timeout_secs")]
+    pub http_timeout_secs: u64,
+}
+
+// WHY serde defaults here rather than in `Config::default`: `auth` is optional
+// (`None` by default), so its fields can't have defaults there; these fill in
+// whatever an `[auth]` section leaves out.
+impl AuthConfig {
+    fn default_keys_max_age_secs() -> u64 {
+        3600
+    }
+
+    fn default_keys_min_refresh_interval_secs() -> u64 {
+        30
+    }
+
+    fn default_http_timeout_secs() -> u64 {
+        5
+    }
 }
 
 impl Default for Config {

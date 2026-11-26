@@ -1,21 +1,26 @@
-// Login for the `/mcp` endpoint. In OAuth terms MyShelf is a *resource server*:
-// it never sees passwords, it only checks access tokens.
+// Login for an HTTP endpoint (an axum router). In OAuth terms the server using
+// this module is a *resource server*: it never sees passwords, it only checks
+// access tokens.
 //
-// BACKGROUND: an identity provider (WorkOS AuthKit for the hosted service, any
-// OAuth / OpenID Connect provider for self-hosters) logs the user in and gives the
-// MCP client (Claude, ChatGPT...) a signed *access token*, a JWT. The client sends
-// it with every request (`Authorization: Bearer <token>`) and we check it: signed
-// with one of the provider's keys, issued by that provider (`iss`), meant for this
-// server (`aud`), not expired (`exp`).
+// This module is self-contained: it knows nothing of the app using it. Everything
+// it needs (provider, resource URL, cache durations...) is passed in
+// `AuthSettings`, and it has no defaults of its own.
 //
-// How a client finds the provider (MCP authorization spec):
-// 1. it calls `/mcp` without a token and gets a 401 whose `WWW-Authenticate`
-//    header points at our *protected resource metadata* (RFC 9728),
+// BACKGROUND: an identity provider (WorkOS AuthKit, Keycloak, any OAuth / OpenID
+// Connect provider) logs the user in and gives the client (e.g. an MCP client
+// such as Claude) a signed *access token*, a JWT. The client sends it with every
+// request (`Authorization: Bearer <token>`) and we check it: signed with one of
+// the provider's keys, issued by that provider (`iss`), meant for this server
+// (`aud`), not expired (`exp`).
+//
+// How a client finds the provider (RFC 9728, used by the MCP authorization spec):
+// 1. it calls the protected endpoint without a token and gets a 401 whose
+//    `WWW-Authenticate` header points at our *protected resource metadata*,
 // 2. that small JSON document names the provider (`authorization_servers`),
 // 3. the client registers itself with the provider, has the user log in, gets
-//    a token, and calls `/mcp` again with it.
+//    a token, and calls the endpoint again with it.
 // So the provider's setup (registering clients, login page...) never touches
-// this code: only its issuer URL is configured here.
+// this code: only its issuer URL is given here.
 
 use std::str::FromStr;
 use std::sync::Arc;
@@ -39,15 +44,33 @@ use rmcp::{
 };
 use serde::{Deserialize, de::DeserializeOwned};
 
-use crate::config::AuthConfig;
-
-/// Keys are fetched again after this long, so that a key the provider removed
-/// (rotated out, or revoked after a leak) stops being accepted.
-const KEYS_MAX_AGE: Duration = Duration::from_hours(1);
-/// A token signed with an unknown key makes us fetch the keys again (the
-/// provider may have just rotated them), but not more often than this: anyone
-/// can send such tokens, and each one must not cost a request to the provider.
-const KEYS_MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+/// Everything `Auth` needs, chosen by the app using it.
+#[derive(Clone, Debug)]
+pub struct AuthSettings {
+    /// The provider's issuer URL, exactly as in its tokens' `iss` claim (and its
+    /// metadata's `issuer` field), e.g. `https://auth.example.com`.
+    pub issuer: String,
+    /// The public URL of the protected endpoint, e.g. `https://api.example.com/mcp`.
+    /// Tokens must name it in their `aud` claim, so that a token issued for
+    /// another app by the same provider is refused.
+    pub resource: String,
+    /// Where the provider publishes its signing keys. `None`: found from the
+    /// issuer's metadata (`/.well-known/...`) on first use.
+    pub jwks_uri: Option<String>,
+    /// Human-readable name of the resource, shown to users by some clients
+    /// (`resource_name` in the protected resource metadata).
+    pub resource_name: Option<String>,
+    /// Keys are fetched again after this long, so that a key the provider
+    /// removed (rotated out, or revoked after a leak) stops being accepted.
+    pub keys_max_age: Duration,
+    /// A token signed with an unknown key makes us fetch the keys again (the
+    /// provider may have just rotated them), but not more often than this:
+    /// anyone can send such tokens, and each one must not cost a request to
+    /// the provider.
+    pub keys_min_refresh_interval: Duration,
+    /// Timeout of each request to the provider (metadata, keys).
+    pub http_timeout: Duration,
+}
 
 /// The logged-in user making the request.
 ///
@@ -61,7 +84,8 @@ pub struct AuthUser {
 /// Lets a tool take the logged-in user as a plain parameter (`user: AuthUser`).
 ///
 /// rmcp hands each tool call the HTTP request's `Parts`; `require_login` stored
-/// the user in their extensions (a per-request map keyed by type).
+/// the user in their extensions (a per-request map keyed by type). For other
+/// axum handlers, take `Extension<AuthUser>` instead.
 impl<C: AsRequestContext> FromContextPart<C> for AuthUser {
     fn from_context_part(context: &mut C) -> Result<Self, ErrorData> {
         context
@@ -70,7 +94,7 @@ impl<C: AsRequestContext> FromContextPart<C> for AuthUser {
             .get::<Parts>()
             .and_then(|parts| parts.extensions.get::<AuthUser>())
             .cloned()
-            // Only reachable if a login-only tool is put on `/public/mcp`.
+            // Only reachable if a login-only tool is served without `require_login`.
             .ok_or_else(|| ErrorData::internal_error("this tool needs a logged-in user", None))
     }
 }
@@ -104,7 +128,7 @@ struct ProviderMetadata {
 /// must not wait on, or fail because of, the provider).
 #[derive(Default)]
 struct KeyCache {
-    /// Where to fetch the keys: from the config, or discovered on first use.
+    /// Where to fetch the keys: from the settings, or discovered on first use.
     jwks_uri: Option<String>,
     keys: Option<JwkSet>,
     /// Last fetch attempt, successful or not.
@@ -115,6 +139,9 @@ struct KeyCache {
 pub struct Auth {
     issuer: String,
     resource: String,
+    resource_name: Option<String>,
+    keys_max_age: Duration,
+    keys_min_refresh_interval: Duration,
     /// Path of our protected resource metadata, e.g.
     /// `/.well-known/oauth-protected-resource/mcp`.
     metadata_path: String,
@@ -129,9 +156,10 @@ pub struct Auth {
 impl Auth {
     /// # Errors
     /// Returns an error if `issuer` or `resource` is not an absolute URL.
-    pub fn new(config: &AuthConfig) -> Result<Self, Box<dyn std::error::Error>> {
-        Url::parse(&config.issuer).map_err(|e| format!("auth.issuer: {e}"))?;
-        let resource = Url::parse(&config.resource).map_err(|e| format!("auth.resource: {e}"))?;
+    pub fn new(settings: AuthSettings) -> Result<Self, Box<dyn std::error::Error>> {
+        Url::parse(&settings.issuer).map_err(|e| format!("issuer {:?}: {e}", settings.issuer))?;
+        let resource = Url::parse(&settings.resource)
+            .map_err(|e| format!("resource {:?}: {e}", settings.resource))?;
         // RFC 9728: the metadata of `https://host/mcp` is served at
         // `https://host/.well-known/oauth-protected-resource/mcp`.
         let metadata_path = format!(
@@ -140,15 +168,18 @@ impl Auth {
         );
         let metadata_url = format!("{}{metadata_path}", resource.origin().ascii_serialization());
         Ok(Self {
-            issuer: config.issuer.clone(),
-            resource: config.resource.clone(),
+            issuer: settings.issuer,
+            resource: settings.resource,
+            resource_name: settings.resource_name,
+            keys_max_age: settings.keys_max_age,
+            keys_min_refresh_interval: settings.keys_min_refresh_interval,
             metadata_path,
             metadata_url,
             http: reqwest::Client::builder()
-                .timeout(Duration::from_secs(5))
+                .timeout(settings.http_timeout)
                 .build()?,
             keys: tokio::sync::Mutex::new(KeyCache {
-                jwks_uri: config.jwks_uri.clone(),
+                jwks_uri: settings.jwks_uri,
                 ..KeyCache::default()
             }),
         })
@@ -212,8 +243,8 @@ impl Auth {
         let mut cache = self.keys.lock().await;
         let refresh = match (&cache.keys, cache.fetched_at) {
             (Some(keys), Some(at)) => {
-                at.elapsed() > KEYS_MAX_AGE
-                    || (keys.find(kid).is_none() && at.elapsed() > KEYS_MIN_REFRESH_INTERVAL)
+                at.elapsed() > self.keys_max_age
+                    || (keys.find(kid).is_none() && at.elapsed() > self.keys_min_refresh_interval)
             }
             // Nothing fetched yet, or every attempt failed so far.
             _ => true,
@@ -338,10 +369,13 @@ pub async fn require_login(
 /// RFC 9728 protected resource metadata: tells clients which provider to log
 /// in with to call this server.
 async fn protected_resource_metadata(State(auth): State<Arc<Auth>>) -> Json<serde_json::Value> {
-    Json(serde_json::json!({
+    let mut metadata = serde_json::json!({
         "resource": auth.resource,
         "authorization_servers": [auth.issuer],
         "bearer_methods_supported": ["header"],
-        "resource_name": "MyShelf",
-    }))
+    });
+    if let Some(name) = &auth.resource_name {
+        metadata["resource_name"] = name.as_str().into();
+    }
+    Json(metadata)
 }
