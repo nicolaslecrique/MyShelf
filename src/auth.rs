@@ -2,9 +2,11 @@
 // this module is a *resource server*: it never sees passwords, it only checks
 // access tokens.
 //
-// This module is self-contained: it knows nothing of the app using it. Everything
-// it needs (provider, resource URL, cache durations...) is passed in
-// `AuthSettings`, and it has no defaults of its own.
+// RULE (see README "Architecture"): this module does not depend on the rest of
+// the app. Never import from `crate::` here, and don't hard-code values
+// (URLs, durations, names): add a field to `AuthSettings` instead, which the
+// app fills from its config. Only external crates are allowed, so that this
+// file could become its own crate, used by another app.
 //
 // BACKGROUND: an identity provider (WorkOS AuthKit, Keycloak, any OAuth / OpenID
 // Connect provider) logs the user in and gives the client (e.g. an MCP client
@@ -54,12 +56,9 @@ pub struct AuthSettings {
     /// Tokens must name it in their `aud` claim, so that a token issued for
     /// another app by the same provider is refused.
     pub resource: String,
-    /// Where the provider publishes its signing keys. `None`: found from the
-    /// issuer's metadata (`/.well-known/...`) on first use.
-    pub jwks_uri: Option<String>,
     /// Human-readable name of the resource, shown to users by some clients
     /// (`resource_name` in the protected resource metadata).
-    pub resource_name: Option<String>,
+    pub resource_name: String,
     /// Keys are fetched again after this long, so that a key the provider
     /// removed (rotated out, or revoked after a leak) stops being accepted.
     pub keys_max_age: Duration,
@@ -128,7 +127,8 @@ struct ProviderMetadata {
 /// must not wait on, or fail because of, the provider).
 #[derive(Default)]
 struct KeyCache {
-    /// Where to fetch the keys: from the settings, or discovered on first use.
+    /// Where to fetch the keys, discovered from the provider's metadata on
+    /// first use.
     jwks_uri: Option<String>,
     keys: Option<JwkSet>,
     /// Last fetch attempt, successful or not.
@@ -139,7 +139,7 @@ struct KeyCache {
 pub struct Auth {
     issuer: String,
     resource: String,
-    resource_name: Option<String>,
+    resource_name: String,
     keys_max_age: Duration,
     keys_min_refresh_interval: Duration,
     /// Path of our protected resource metadata, e.g.
@@ -178,10 +178,7 @@ impl Auth {
             http: reqwest::Client::builder()
                 .timeout(settings.http_timeout)
                 .build()?,
-            keys: tokio::sync::Mutex::new(KeyCache {
-                jwks_uri: settings.jwks_uri,
-                ..KeyCache::default()
-            }),
+            keys: tokio::sync::Mutex::new(KeyCache::default()),
         })
     }
 
@@ -369,13 +366,10 @@ pub async fn require_login(
 /// RFC 9728 protected resource metadata: tells clients which provider to log
 /// in with to call this server.
 async fn protected_resource_metadata(State(auth): State<Arc<Auth>>) -> Json<serde_json::Value> {
-    let mut metadata = serde_json::json!({
+    Json(serde_json::json!({
         "resource": auth.resource,
         "authorization_servers": [auth.issuer],
         "bearer_methods_supported": ["header"],
-    });
-    if let Some(name) = &auth.resource_name {
-        metadata["resource_name"] = name.as_str().into();
-    }
-    Json(metadata)
+        "resource_name": auth.resource_name,
+    }))
 }

@@ -264,25 +264,3 @@ async fn issuer_mismatch_with_provider_metadata_is_refused() {
     );
     assert_eq!(provider.jwks_fetches(), 0);
 }
-
-/// With `jwks_uri` configured, the keys are fetched from there directly.
-#[tokio::test]
-async fn configured_jwks_uri_is_used() {
-    let provider = FakeProvider::start().await;
-    let server = TestServer::start_with(|addr| {
-        vec![
-            // An issuer serving no metadata: discovery would fail.
-            ("MYSHELF_AUTH__ISSUER", "http://127.0.0.1:9".to_string()),
-            ("MYSHELF_AUTH__RESOURCE", format!("http://{addr}/mcp")),
-            ("MYSHELF_AUTH__JWKS_URI", provider.jwks_uri()),
-        ]
-    })
-    .await;
-    let mut claims = provider.claims(&server.resource());
-    claims["iss"] = json!("http://127.0.0.1:9");
-    let token = provider.sign(&claims);
-
-    let client = server.try_connect("/mcp", Some(&token)).await.unwrap();
-    assert_eq!(provider.jwks_fetches(), 1);
-    client.cancel().await.ok();
-}

@@ -43,9 +43,6 @@ pub struct AuthConfig {
     /// Tokens must name it in their `aud` claim, so that a token issued for
     /// another app by the same provider is refused here.
     pub resource: String,
-    /// Where the provider publishes its signing keys. Optional: found from the
-    /// issuer's metadata (`/.well-known/...`) when not set.
-    pub jwks_uri: Option<String>,
     /// Seconds after which the provider's signing keys are fetched again, so
     /// that a key it removed (rotated out, revoked) stops being accepted.
     #[serde(default = "AuthConfig::default_keys_max_age_secs")]

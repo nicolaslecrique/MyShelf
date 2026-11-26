@@ -126,8 +126,7 @@ fn auth_settings(config: &AuthConfig) -> AuthSettings {
     AuthSettings {
         issuer: config.issuer.clone(),
         resource: config.resource.clone(),
-        jwks_uri: config.jwks_uri.clone(),
-        resource_name: Some("MyShelf".to_string()),
+        resource_name: "MyShelf".to_string(),
         keys_max_age: Duration::from_secs(config.keys_max_age_secs),
         keys_min_refresh_interval: Duration::from_secs(config.keys_min_refresh_interval_secs),
         http_timeout: Duration::from_secs(config.http_timeout_secs),

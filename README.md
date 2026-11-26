@@ -62,8 +62,9 @@ it:
   parameter the apps send (RFC 8707 resource indicators),
 - lets AI apps register themselves: Dynamic Client Registration and/or Client
   ID Metadata Documents, with Authorization Code + PKCE,
-- publishes its metadata at `<issuer>/.well-known/oauth-authorization-server`
-  or `<issuer>/.well-known/openid-configuration` (or set `jwks_uri`).
+- publishes its metadata, including `jwks_uri` (where its signing keys are),
+  at `<issuer>/.well-known/oauth-authorization-server` or
+  `<issuer>/.well-known/openid-configuration`.
 
 Users are identified by their provider (issuer) and their id there (`sub`):
 switching provider, or changing the issuer URL, gives every user a new identity.
@@ -105,3 +106,20 @@ HTTP request (method, path, status, duration) and one at shutdown. Pipe through
 On Scaleway, Cockpit collects stdout: query the container's logs from
 Cockpit's Grafana (Explore), adding `| json` to filter on fields, e.g.
 `| json | status >= 500`. Logs kept for the default 7 days are free.
+
+## Architecture
+
+| File | Role |
+|---|---|
+| `src/main.rs` | Wires everything: HTTP routes, `/mcp` behind login, `/public/mcp`, graceful shutdown |
+| `src/config.rs` | Configuration (defaults, `myshelf.toml`, `MYSHELF_*` env vars) |
+| `src/auth.rs` | Checks OAuth access tokens and serves the protected resource metadata |
+| `src/my_shelf.rs` | The MCP tools |
+| `src/logging.rs` | JSON logs to stdout |
+
+**Rule: `auth.rs` does not depend on the rest of the app.** It never imports
+from `crate::` (no `Config`, no `MyShelf`) and has no built-in values (URLs,
+durations, names): everything comes from `AuthSettings`, which `main.rs` builds
+from the config. Only external crates (axum, rmcp, jsonwebtoken, reqwest...)
+are allowed, so it could be moved to its own crate and used by another app.
+Nothing checks this automatically yet: keep it in mind when changing it.

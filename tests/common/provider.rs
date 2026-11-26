@@ -73,10 +73,6 @@ impl FakeProvider {
         format!("http://{}", self.addr)
     }
 
-    pub fn jwks_uri(&self) -> String {
-        format!("{}/jwks", self.issuer())
-    }
-
     pub fn jwks_fetches(&self) -> usize {
         self.jwks_fetches.load(Ordering::SeqCst)
     }
